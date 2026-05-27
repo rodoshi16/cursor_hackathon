@@ -13,8 +13,9 @@ export default function AgentPage() {
             Voice agent
           </h1>
           <p className="mt-1 text-sm text-zinc-600">
-            A calm ElevenLabs voice that scans your inbox, summarizes upcoming
-            interviews, and reads evidence-based prep reports out loud.
+            A calm ElevenLabs voice that scans your inbox, explains every
+            decision InterviewRadar makes, and reads evidence-based prep plans
+            out loud.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -24,7 +25,7 @@ export default function AgentPage() {
           </Link>
           <Link href="/reports" className="btn-secondary">
             <ScrollText className="h-3.5 w-3.5" />
-            Prep report
+            Decision reports
           </Link>
         </div>
       </header>

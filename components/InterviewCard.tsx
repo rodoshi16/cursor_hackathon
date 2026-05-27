@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import {
   Building2,
@@ -8,14 +9,17 @@ import {
   ChevronUp,
   ExternalLink,
   Headphones,
+  HelpCircle,
   Link2,
   Loader2,
   Mail,
+  ScrollText,
   Volume2,
 } from "lucide-react";
 import type { InterviewEmail } from "@/types/interview";
 import { formatDateTime } from "@/lib/utils";
 import { StatusBadge } from "./StatusBadge";
+import { DecisionExplanationModal } from "./DecisionExplanationModal";
 
 function ProviderBadge({ provider }: { provider: "google" | "microsoft" }) {
   const label = provider === "google" ? "Gmail" : "Outlook";
@@ -47,20 +51,24 @@ function ConfidenceBar({ value }: { value: number }) {
   );
 }
 
-export function InterviewCard({
-  interview,
-}: {
-  interview: InterviewEmail;
-}) {
+export function InterviewCard({ interview }: { interview: InterviewEmail }) {
   const [audioState, setAudioState] = useState<
     "idle" | "loading" | "playing" | "error"
   >("idle");
   const [fallbackScript, setFallbackScript] = useState<string | null>(null);
   const [audioEl, setAudioEl] = useState<HTMLAudioElement | null>(null);
   const [emailOpen, setEmailOpen] = useState(false);
+  const [whyOpen, setWhyOpen] = useState(false);
 
   const showReason =
     interview.status === "needs_review" || interview.status === "error";
+
+  const whyLabel =
+    interview.status === "added_to_calendar"
+      ? "Why was this added?"
+      : interview.status === "needs_review"
+      ? "Why does this need review?"
+      : "Why was this ignored?";
 
   async function handleListen() {
     if (!interview.reportId) return;
@@ -159,8 +167,26 @@ export function InterviewCard({
       <footer className="mt-3 flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-3">
         <button
           type="button"
-          onClick={() => setEmailOpen((v) => !v)}
+          onClick={() => setWhyOpen(true)}
           className="btn-secondary"
+        >
+          <HelpCircle className="h-3.5 w-3.5" />
+          {whyLabel}
+        </button>
+        {interview.reportId && (
+          <Link
+            href={`/reports/${interview.reportId}`}
+            className="btn-ghost"
+            title="View full Decision Report"
+          >
+            <ScrollText className="h-3.5 w-3.5" />
+            View Decision Report
+          </Link>
+        )}
+        <button
+          type="button"
+          onClick={() => setEmailOpen((v) => !v)}
+          className="btn-ghost"
           aria-expanded={emailOpen}
         >
           <Mail className="h-3.5 w-3.5" />
@@ -171,7 +197,7 @@ export function InterviewCard({
             <ChevronDown className="h-3.5 w-3.5" />
           )}
         </button>
-        {interview.reportId && (
+        {interview.reportId && interview.status !== "ignored" && (
           <button
             type="button"
             onClick={audioState === "playing" ? stopAudio : handleListen}
@@ -206,7 +232,9 @@ export function InterviewCard({
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500">
             <div className="min-w-0">
               <span className="font-medium text-zinc-800">From:</span>{" "}
-              <span className="truncate">{interview.from || "Unknown sender"}</span>
+              <span className="truncate">
+                {interview.from || "Unknown sender"}
+              </span>
             </div>
             {interview.receivedAt && (
               <span className="text-zinc-400">
@@ -232,6 +260,13 @@ export function InterviewCard({
           <p className="whitespace-pre-wrap leading-relaxed">{fallbackScript}</p>
         </div>
       )}
+
+      <DecisionExplanationModal
+        reportId={interview.reportId}
+        fallbackTitle={interview.subject}
+        open={whyOpen}
+        onClose={() => setWhyOpen(false)}
+      />
     </article>
   );
 }

@@ -1,4 +1,4 @@
-import type { InterviewReport } from "@/types/report";
+import type { DecisionReport, InterviewReport } from "@/types/report";
 import { formatDateTime } from "./utils";
 
 export function hasElevenLabsTtsConfigured(): boolean {
@@ -44,64 +44,84 @@ export async function textToSpeech(text: string): Promise<ArrayBuffer> {
   return res.arrayBuffer();
 }
 
-export function createBriefingScript(report: InterviewReport): string {
+export function createDecisionBriefingScript(report: DecisionReport): string {
   const parts: string[] = [];
+  const subjectName = report.company || "this email";
 
-  const intro = report.company
-    ? `Here's your evidence-based briefing for ${report.company}.`
-    : "Here's your evidence-based briefing.";
-  parts.push(intro);
-
-  parts.push("Based on the email, here is what we know.");
-
-  if (report.confirmedDetails.length) {
-    const confirmed = report.confirmedDetails
-      .filter((d) =>
-        ["Company", "Role", "Interview type", "Date / time"].includes(d.label)
-      )
-      .map((d) => `${d.label.toLowerCase()}: ${d.value}`)
-      .join(", ");
-    if (confirmed) parts.push(`The confirmed details are ${confirmed}.`);
-  }
-
-  if (report.startDateTime) {
-    parts.push(`The interview is scheduled for ${formatDateTime(report.startDateTime)}.`);
-  }
-
-  if (report.evidenceFound.length) {
+  if (report.outcome === "added_to_calendar") {
     parts.push(
-      `The email specifically mentions: ${report.evidenceFound
-        .map((e) => `"${e}"`)
-        .join(", ")}.`
+      `Based on the email, InterviewRadar added ${subjectName} to your calendar because it found a clear interview signal and a confirmed date and time.`
     );
-  }
-
-  if (report.whatToPrepare.length) {
-    parts.push("What you should prepare is the following.");
-    for (const item of report.whatToPrepare) {
-      parts.push(`${item.item} Based on the phrase "${item.evidence}".`);
+    if (report.startDateTime) {
+      parts.push(
+        `The interview is scheduled for ${formatDateTime(
+          report.startDateTime
+        )}.`
+      );
+    }
+    if (report.decision.evidence.length) {
+      parts.push(
+        `The email specifically mentions: ${report.decision.evidence
+          .map((e) => `"${e}"`)
+          .join(", ")}.`
+      );
+    }
+    if (report.whatToPrepare.length) {
+      parts.push("For preparation, the email asks you to:");
+      for (const item of report.whatToPrepare) {
+        parts.push(`${item.item} Based on "${item.evidence}".`);
+      }
+    } else {
+      parts.push(
+        "The email does not include enough detail to create a specific prep plan."
+      );
+    }
+    if (report.unknowns.length) {
+      parts.push("What is still unclear:");
+      for (const u of report.unknowns) parts.push(u);
+    }
+  } else if (report.outcome === "needs_review") {
+    parts.push(
+      `InterviewRadar marked ${subjectName} as needs review. It looks interview-related because the email says ${
+        report.decision.evidence.length
+          ? report.decision.evidence.map((e) => `"${e}"`).join(", ")
+          : "it is from a recruiter"
+      }, but it does not include a confirmed date or time.`
+    );
+    if (report.whatToPrepare.length) {
+      parts.push("Based only on what the email says, you can already:");
+      for (const item of report.whatToPrepare) {
+        parts.push(`${item.item} Based on "${item.evidence}".`);
+      }
+    }
+    if (report.decision.nextSteps.length) {
+      parts.push("The next steps are:");
+      for (const s of report.decision.nextSteps) parts.push(s);
     }
   } else {
     parts.push(
-      "The email does not include enough detail to create a specific prep plan. The safest next step is to confirm the interview format and whether anything should be prepared."
+      `InterviewRadar ignored ${subjectName} because it looks like an application confirmation, not an interview request.`
     );
-  }
-
-  if (report.unknowns.length) {
-    parts.push("What is unclear:");
-    for (const u of report.unknowns) parts.push(u);
-  }
-
-  if (report.suggestedFollowUpQuestions.length) {
-    parts.push("Here are useful follow-up questions:");
-    for (const q of report.suggestedFollowUpQuestions) parts.push(q);
+    if (report.decision.evidence.length) {
+      parts.push(
+        `The email says ${report.decision.evidence
+          .map((e) => `"${e}"`)
+          .join(", ")}, but it does not include an interview request, date, time, or meeting link.`
+      );
+    }
+    parts.push("No action is needed.");
   }
 
   parts.push(
-    "InterviewRadar only recommends preparation directly supported by the email."
+    "InterviewRadar only includes information directly supported by the email."
   );
 
   return parts.join(" ");
+}
+
+// Backwards-compatible name used by older callers.
+export function createBriefingScript(report: InterviewReport): string {
+  return createDecisionBriefingScript(report);
 }
 
 export function createToolResponseScript(message: string): string {

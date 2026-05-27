@@ -1,8 +1,10 @@
 import type { InterviewEmail } from "@/types/interview";
 import type {
+  ActionTaken,
   ConfirmedDetail,
+  DecisionExplanation,
+  DecisionReport,
   EvidenceBasedPrepItem,
-  InterviewReport,
   PrepSignal,
 } from "@/types/report";
 import { formatDateTime, generateId } from "./utils";
@@ -21,9 +23,6 @@ function trimMatch(s: string): string {
   return s.replace(/\s+/g, " ").trim();
 }
 
-// Each signal defines:
-//  - a regex that captures the longest natural phrase from the email
-//  - a build() that produces evidence + prep items strictly from that phrase
 const PREP_SIGNAL_DEFS: PrepSignalDef[] = [
   {
     key: "project_showcase",
@@ -116,7 +115,6 @@ const PREP_SIGNAL_DEFS: PrepSignalDef[] = [
   {
     key: "presentation",
     label: "Presentation",
-    // avoid double matching project showcase; this is a fallback
     regex: /\b(?:\d+[-\s]?minute\s+)?presentation\b/i,
     build: (m) => ({
       evidence: trimMatch(m),
@@ -178,7 +176,9 @@ const PREP_SIGNAL_DEFS: PrepSignalDef[] = [
     regex: /\bleadership\b/i,
     build: (m) => ({
       evidence: trimMatch(m),
-      prepItems: ["Prepare leadership examples because the email mentions leadership."],
+      prepItems: [
+        "Prepare leadership examples because the email mentions leadership.",
+      ],
     }),
   },
   {
@@ -187,7 +187,9 @@ const PREP_SIGNAL_DEFS: PrepSignalDef[] = [
     regex: /\bteamwork\b/i,
     build: (m) => ({
       evidence: trimMatch(m),
-      prepItems: ["Prepare teamwork examples because the email mentions teamwork."],
+      prepItems: [
+        "Prepare teamwork examples because the email mentions teamwork.",
+      ],
     }),
   },
   {
@@ -196,7 +198,9 @@ const PREP_SIGNAL_DEFS: PrepSignalDef[] = [
     regex: /\bcompetenc(?:y|ies)\b/i,
     build: (m) => ({
       evidence: trimMatch(m),
-      prepItems: ["Prepare competency-based answers because the email mentions competencies."],
+      prepItems: [
+        "Prepare competency-based answers because the email mentions competencies.",
+      ],
     }),
   },
   {
@@ -205,7 +209,9 @@ const PREP_SIGNAL_DEFS: PrepSignalDef[] = [
     regex: /\bsystem design\b/i,
     build: (m) => ({
       evidence: trimMatch(m),
-      prepItems: ["Prepare a system design walkthrough because the email mentions system design."],
+      prepItems: [
+        "Prepare a system design walkthrough because the email mentions system design.",
+      ],
     }),
   },
   {
@@ -214,7 +220,9 @@ const PREP_SIGNAL_DEFS: PrepSignalDef[] = [
     regex: /\barchitecture\b/i,
     build: (m) => ({
       evidence: trimMatch(m),
-      prepItems: ["Prepare to discuss architecture because the email mentions architecture."],
+      prepItems: [
+        "Prepare to discuss architecture because the email mentions architecture.",
+      ],
     }),
   },
   {
@@ -223,7 +231,9 @@ const PREP_SIGNAL_DEFS: PrepSignalDef[] = [
     regex: /\btake[-\s]?home\b/i,
     build: (m) => ({
       evidence: trimMatch(m),
-      prepItems: ["Review your take-home submission because the email mentions a take-home."],
+      prepItems: [
+        "Review your take-home submission because the email mentions a take-home.",
+      ],
     }),
   },
   {
@@ -259,7 +269,9 @@ const PREP_SIGNAL_DEFS: PrepSignalDef[] = [
     regex: /\bpanel interview\b/i,
     build: (m) => ({
       evidence: trimMatch(m),
-      prepItems: ["Prepare for a panel format because the email mentions a panel interview."],
+      prepItems: [
+        "Prepare for a panel format because the email mentions a panel interview.",
+      ],
     }),
   },
   {
@@ -268,7 +280,9 @@ const PREP_SIGNAL_DEFS: PrepSignalDef[] = [
     regex: /\bonsite\b/i,
     build: (m) => ({
       evidence: trimMatch(m),
-      prepItems: ["Plan logistics for an onsite because the email mentions onsite."],
+      prepItems: [
+        "Plan logistics for an onsite because the email mentions onsite.",
+      ],
     }),
   },
   {
@@ -277,7 +291,9 @@ const PREP_SIGNAL_DEFS: PrepSignalDef[] = [
     regex: /\bvirtual\b/i,
     build: (m) => ({
       evidence: trimMatch(m),
-      prepItems: ["Test your video and audio setup because the email mentions a virtual interview."],
+      prepItems: [
+        "Test your video and audio setup because the email mentions a virtual interview.",
+      ],
     }),
   },
   {
@@ -295,7 +311,9 @@ const PREP_SIGNAL_DEFS: PrepSignalDef[] = [
     regex: /\bHR\b/,
     build: (m) => ({
       evidence: trimMatch(m),
-      prepItems: ["Be ready for HR logistics questions because the email mentions HR."],
+      prepItems: [
+        "Be ready for HR logistics questions because the email mentions HR.",
+      ],
     }),
   },
   {
@@ -309,7 +327,6 @@ const PREP_SIGNAL_DEFS: PrepSignalDef[] = [
   },
 ];
 
-// De-duplicate prep items while preserving insertion order.
 function dedupe<T>(arr: T[], key: (v: T) => string): T[] {
   const seen = new Set<string>();
   const out: T[] = [];
@@ -329,7 +346,6 @@ export function extractPrepSignals(
 ): PrepSignal[] {
   const haystack = `${subject || ""}\n${emailBody || ""}`;
   const signals: PrepSignal[] = [];
-
   for (const def of PREP_SIGNAL_DEFS) {
     const match = haystack.match(def.regex);
     if (!match) continue;
@@ -341,7 +357,6 @@ export function extractPrepSignals(
       prepItems,
     });
   }
-
   return signals;
 }
 
@@ -350,150 +365,419 @@ function hasAny(text: string, terms: string[]): boolean {
   return terms.some((t) => lower.includes(t));
 }
 
-export function generateInterviewReport(
+// Extract a literal phrase from the body (preserves casing/order). Useful for
+// surfacing the exact recruiter wording on the Decision Report.
+function findExactPhrase(body: string, needle: RegExp): string | null {
+  const m = body.match(needle);
+  return m ? trimMatch(m[0]) : null;
+}
+
+function buildIgnoredEvidence(body: string): string[] {
+  const phrases: string[] = [];
+  const patterns: RegExp[] = [
+    /thank you for applying/i,
+    /we (?:have )?received your application/i,
+    /your application (?:was|has been) (?:received|submitted)/i,
+    /will be in touch/i,
+    /we'll be in touch/i,
+    /unfortunately/i,
+    /not moving forward/i,
+    /we regret to inform you/i,
+    /confirm your application/i,
+    /no[-\s]?reply/i,
+    /do not reply/i,
+    /job alert/i,
+  ];
+  for (const p of patterns) {
+    const v = findExactPhrase(body, p);
+    if (v && !phrases.some((x) => x.toLowerCase() === v.toLowerCase())) {
+      phrases.push(v);
+    }
+  }
+  return phrases;
+}
+
+function buildOutcomeEvidence(
+  interview: InterviewEmail,
+  signalEvidence: string[]
+): string[] {
+  const body = interview.body || interview.snippet || "";
+  const phrases: string[] = [];
+
+  if (interview.status === "ignored") {
+    return buildIgnoredEvidence(body);
+  }
+
+  // Date phrase
+  const datePhrase = findExactPhrase(
+    body,
+    /(?:(?:mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)\w*,?\s+)?(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\w*\.?\s+\d{1,2}(?:st|nd|rd|th)?(?:,\s+\d{4})?(?:\s+(?:at\s+)?\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?/i
+  );
+  if (datePhrase) phrases.push(datePhrase);
+
+  // Meeting link/keyword
+  if (interview.meetingLink) {
+    const meetMatch = findExactPhrase(body, /google meet|zoom|microsoft teams|calendly/i);
+    if (meetMatch) phrases.push(meetMatch);
+  }
+
+  // Signal evidence (project showcase, recruiter screen, etc.)
+  for (const e of signalEvidence) {
+    if (!phrases.some((x) => x.toLowerCase() === e.toLowerCase())) {
+      phrases.push(e);
+    }
+  }
+
+  // Interview-type evidence keywords
+  const typeKeywords: RegExp[] = [
+    /final interview/i,
+    /recruiter screen/i,
+    /technical interview/i,
+    /phone screen/i,
+    /onsite/i,
+    /virtual interview/i,
+    /behavioral interview/i,
+  ];
+  for (const re of typeKeywords) {
+    const v = findExactPhrase(body, re);
+    if (v && !phrases.some((x) => x.toLowerCase() === v.toLowerCase())) {
+      phrases.unshift(v);
+    }
+  }
+
+  // Cap at 6 to keep cards/chips clean
+  return phrases.slice(0, 6);
+}
+
+function buildDecision(
+  interview: InterviewEmail,
+  prepSignals: PrepSignal[],
+  whatToPrepare: EvidenceBasedPrepItem[],
+  evidence: string[]
+): DecisionExplanation {
+  const hasProjectShowcase = prepSignals.some(
+    (s) => s.signal === "project_showcase"
+  );
+  const body = interview.body || interview.snippet || "";
+  const mentionsCoding = /\bcoding\b/i.test(body);
+  const hasMeeting =
+    !!interview.meetingLink ||
+    hasAny(body, ["zoom", "google meet", "microsoft teams", "calendly"]);
+
+  if (interview.status === "added_to_calendar") {
+    const actionsTaken: ActionTaken[] = [
+      {
+        label: "Created calendar event",
+        description:
+          "Added the interview to your calendar with the recruiter's date and time.",
+      },
+      {
+        label: "Generated Decision Report",
+        description:
+          "Recorded why this email was treated as a real interview.",
+      },
+    ];
+    if (whatToPrepare.length) {
+      actionsTaken.push({
+        label: "Added evidence-based prep plan",
+        description:
+          "Listed only preparation items that are supported by the recruiter email.",
+      });
+    }
+    actionsTaken.push({
+      label: "Added report link to calendar description",
+      description:
+        "Pasted a link back to this Decision Report so the prep is one tap away.",
+    });
+
+    const actionsNotTaken: ActionTaken[] = [];
+    if (!interview.interviewerName) {
+      actionsNotTaken.push({
+        label: "Did not infer the interviewer name",
+        description:
+          "The email did not specify who you'll meet with, so no name was guessed.",
+      });
+    }
+    if (hasProjectShowcase && !mentionsCoding) {
+      actionsNotTaken.push({
+        label: "Did not add live coding prep",
+        description:
+          "The email talks about a project showcase but never mentions live coding.",
+      });
+    }
+    actionsNotTaken.push({
+      label: "Did not invent extra interview topics",
+      description:
+        "Only prep items directly supported by the email were included.",
+    });
+
+    return {
+      summary: `Added to calendar because this email includes a ${
+        interview.interviewType?.toLowerCase() || "confirmed interview"
+      } with a clear date, time${hasMeeting ? ", and meeting location" : ""}.`,
+      why:
+        "This email contains interview-specific language and enough scheduling information to safely create a calendar event.",
+      evidence,
+      actionsTaken,
+      actionsNotTaken,
+      nextSteps: [
+        "Review the evidence-based prep plan.",
+        "Confirm anything listed under Needs Clarification with the recruiter.",
+        hasMeeting
+          ? "Join using the meeting link at the scheduled time."
+          : "Confirm the meeting link or location with the recruiter.",
+      ],
+    };
+  }
+
+  if (interview.status === "needs_review") {
+    const actionsTaken: ActionTaken[] = [
+      {
+        label: "Flagged email as needs review",
+        description:
+          "Marked the email so it shows up in the Needs Review queue.",
+      },
+      {
+        label: "Generated Decision Report",
+        description:
+          "Recorded the evidence found and what still needs to be confirmed.",
+      },
+      {
+        label: "Did not add to calendar",
+        description:
+          "No exact date or time was found in the email, so no event was created.",
+      },
+    ];
+    const actionsNotTaken: ActionTaken[] = [
+      {
+        label: "Did not create a calendar event",
+        description:
+          "Calendar events are only created when the email includes a clear date and time.",
+      },
+      {
+        label: "Did not invent an interview format",
+        description:
+          "The email did not specify whether this is technical, behavioral, or logistical.",
+      },
+    ];
+
+    const nextSteps: string[] = [];
+    if (
+      prepSignals.some((s) => s.signal === "availability") ||
+      /availability/i.test(body)
+    ) {
+      nextSteps.push("Reply with available time slots.");
+    }
+    nextSteps.push("Ask the recruiter to confirm the interview format.");
+    nextSteps.push("Ask whether anything specific should be prepared.");
+
+    const isRecruiterScreen = (interview.interviewType || "")
+      .toLowerCase()
+      .includes("recruiter");
+    const summary = isRecruiterScreen
+      ? "Needs review because this looks like a recruiter screen, but no exact date or time was included."
+      : "Needs review because this email looks interview-related but does not include a confirmed date or time.";
+
+    return {
+      summary,
+      why:
+        "This email includes recruiting or scheduling language, but there is not enough information to create a calendar event yet.",
+      evidence,
+      actionsTaken,
+      actionsNotTaken,
+      nextSteps,
+    };
+  }
+
+  // Default: ignored or error
+  return {
+    summary:
+      "Ignored because this email looks like a generic application confirmation, not an interview request.",
+    why:
+      "This email confirms an application was received, but it does not include an interview invitation, scheduling request, date, time, meeting link, or prep instructions.",
+    evidence,
+    actionsTaken: [
+      {
+        label: "Marked email as ignored",
+        description:
+          "Filtered out so it doesn't crowd your interview queue.",
+      },
+      {
+        label: "Did not create a calendar event",
+        description: "No interview date or time was present.",
+      },
+      {
+        label: "Did not create a prep plan",
+        description:
+          "No interview format or preparation instructions were mentioned.",
+      },
+    ],
+    actionsNotTaken: [
+      {
+        label: "Did not generate a prep plan",
+        description:
+          "No interview or prep instructions were found, so nothing would be evidence-based.",
+      },
+      {
+        label: "Did not infer an interview",
+        description:
+          "Generic 'we received your application' language is not enough to claim there's an interview.",
+      },
+    ],
+    nextSteps: [
+      "No action needed.",
+      "Continue monitoring future recruiter emails for an interview invitation.",
+    ],
+  };
+}
+
+export function generateDecisionReport(
   interview: InterviewEmail
-): InterviewReport {
+): DecisionReport {
   const body = interview.body || interview.snippet || "";
   const subject = interview.subject || "";
 
-  const prepSignals = extractPrepSignals(body, subject);
+  const isInterviewLike =
+    interview.status === "added_to_calendar" ||
+    interview.status === "needs_review";
 
-  // What to prepare (flatten and tie to evidence).
+  const prepSignals = isInterviewLike ? extractPrepSignals(body, subject) : [];
+
   const whatToPrepareRaw: EvidenceBasedPrepItem[] = [];
   for (const sig of prepSignals) {
     for (const item of sig.prepItems) {
       whatToPrepareRaw.push({ item, evidence: sig.evidence });
     }
   }
-
-  // If recruiter_screen is present, prefer ordering it first; if project_showcase
-  // is present, ensure showcase items come before tradeoffs/challenges/decisions.
-  // Order is already insertion order from PREP_SIGNAL_DEFS, which puts
-  // project_showcase, implementation_decisions, challenges, technical_tradeoffs
-  // in that exact order — matching the expected demo output.
-
   const whatToPrepare = dedupe(whatToPrepareRaw, (v) => v.item);
 
-  const evidenceFound = dedupe(
-    prepSignals.map((s) => s.evidence),
-    (e) => e.toLowerCase()
+  const evidenceFound = buildOutcomeEvidence(
+    interview,
+    prepSignals.map((s) => s.evidence)
   );
 
   // Confirmed details
   const confirmedDetails: ConfirmedDetail[] = [];
-  if (interview.company) {
+  if (interview.company)
     confirmedDetails.push({ label: "Company", value: interview.company });
-  }
-  if (interview.role) {
+  if (interview.role)
     confirmedDetails.push({ label: "Role", value: interview.role });
-  }
-  if (interview.interviewType) {
+  if (interview.interviewType)
     confirmedDetails.push({
       label: "Interview type",
       value: interview.interviewType,
     });
-  }
-  if (interview.startDateTime) {
+  if (interview.startDateTime)
     confirmedDetails.push({
       label: "Date / time",
       value: formatDateTime(interview.startDateTime),
     });
-  }
-  if (interview.meetingLink) {
-    confirmedDetails.push({
-      label: "Meeting",
-      value: interview.meetingLink,
-    });
-  }
-  if (interview.location) {
+  if (interview.meetingLink)
+    confirmedDetails.push({ label: "Meeting", value: interview.meetingLink });
+  if (interview.location)
     confirmedDetails.push({ label: "Location", value: interview.location });
-  }
+  confirmedDetails.push({
+    label: "Source email",
+    value: interview.subject || "(no subject)",
+  });
 
-  // Build unknowns
+  // Unknowns
   const unknowns: string[] = [];
-  if (!interview.startDateTime) {
-    unknowns.push("Exact date and time are missing.");
-  }
-  if (!interview.interviewerName) {
-    unknowns.push("Interviewer name is not specified.");
-  }
-  // Total interview duration is only "known" if the email explicitly states
-  // how long the interview itself runs. A 10-minute project showcase does not
-  // tell us the total interview length.
-  const durationKnown =
-    /\binterview\s+will\s+(?:last|run)\s+(?:about\s+)?\d+/i.test(body) ||
-    /\b\d+[-\s]?(?:hour|hr|minute|min)s?\s+(?:long\s+)?interview\b/i.test(body) ||
-    /\binterview\b[^.]{0,40}\b\d+\s*(?:hour|hr|minute|min)s?\b/i.test(body) ||
-    /\btotal\b[^.]{0,30}\b\d+\s*(?:hour|hr|minute|min)s?\b/i.test(body);
-  if (!durationKnown) {
-    if (interview.startDateTime) {
-      unknowns.push("Exact total interview duration is not specified.");
-    } else {
-      unknowns.push("Interview duration is not specified.");
+  if (interview.status === "ignored") {
+    if (!interview.startDateTime) unknowns.push("No date or time found.");
+    if (!interview.meetingLink && !hasAny(body, ["zoom", "google meet", "microsoft teams", "calendly"]))
+      unknowns.push("No meeting link found.");
+    if (prepSignals.length === 0) unknowns.push("No prep instructions found.");
+    if (!isInterviewLike) unknowns.push("No interview request found.");
+  } else {
+    if (!interview.startDateTime)
+      unknowns.push("Exact date and time are missing.");
+    if (!interview.interviewerName)
+      unknowns.push("Interviewer name is not specified.");
+    const durationKnown =
+      /\binterview\s+will\s+(?:last|run)\s+(?:about\s+)?\d+/i.test(body) ||
+      /\b\d+[-\s]?(?:hour|hr|minute|min)s?\s+(?:long\s+)?interview\b/i.test(body) ||
+      /\binterview\b[^.]{0,40}\b\d+\s*(?:hour|hr|minute|min)s?\b/i.test(body) ||
+      /\btotal\b[^.]{0,30}\b\d+\s*(?:hour|hr|minute|min)s?\b/i.test(body);
+    if (!durationKnown) {
+      unknowns.push(
+        interview.startDateTime
+          ? "Exact total interview duration is not specified."
+          : "Interview duration is not specified."
+      );
     }
-  }
-  const meetingMentioned =
-    !!interview.meetingLink ||
-    hasAny(body, ["zoom", "google meet", "microsoft teams", "calendly"]);
-  if (!meetingMentioned) {
-    unknowns.push("Meeting link is missing.");
-  }
-  const hasTechnical = hasAny(body, [
-    "technical interview",
-    "technical tradeoffs",
-    "implementation decisions",
-    "system design",
-    "coding",
-    "debugging",
-    "architecture",
-  ]);
-  const hasBehavioral = hasAny(body, [
-    "behavioral",
-    "competency",
-    "leadership",
-    "teamwork",
-  ]);
-  if (!hasTechnical && !hasBehavioral) {
-    unknowns.push(
-      "The email does not specify whether this is technical or behavioral."
+    const meetingMentioned =
+      !!interview.meetingLink ||
+      hasAny(body, ["zoom", "google meet", "microsoft teams", "calendly"]);
+    if (!meetingMentioned) unknowns.push("Meeting link is missing.");
+    const hasTechnical = hasAny(body, [
+      "technical interview",
+      "technical tradeoffs",
+      "implementation decisions",
+      "system design",
+      "coding",
+      "debugging",
+      "architecture",
+    ]);
+    const hasBehavioral = hasAny(body, [
+      "behavioral",
+      "competency",
+      "leadership",
+      "teamwork",
+    ]);
+    if (!hasTechnical && !hasBehavioral) {
+      unknowns.push(
+        "The email does not specify whether this is technical or behavioral."
+      );
+    }
+    const hasProjectShowcase = prepSignals.some(
+      (s) => s.signal === "project_showcase"
     );
-  }
-  const hasProjectShowcase = prepSignals.some(
-    (s) => s.signal === "project_showcase"
-  );
-  if (hasProjectShowcase && !/\bcoding\b/i.test(body)) {
-    unknowns.push("The email does not say whether there will be live coding.");
-  }
-
-  // Suggested follow-up questions
-  const followUps: string[] = [];
-  const interviewTypeLower = (interview.interviewType || "").toLowerCase();
-  const isRecruiterScreen = interviewTypeLower.includes("recruiter");
-
-  if (!interview.startDateTime) {
-    followUps.push("Could you confirm the available interview times?");
-  }
-  if (isRecruiterScreen) {
-    followUps.push("How long will the recruiter screen be?");
-  } else if (!durationKnown) {
-    followUps.push("Could you confirm the total interview length?");
-  }
-  if (hasProjectShowcase) {
-    if (!/\bcoding\b/i.test(body)) {
-      followUps.push("Will there be a live coding portion?");
+    if (hasProjectShowcase && !/\bcoding\b/i.test(body)) {
+      unknowns.push("The email does not say whether there will be live coding.");
     }
-    followUps.push("Is there a preferred format for the project showcase?");
   }
-  if (isRecruiterScreen && prepSignals.filter((s) => s.prepItems.length).length <= 2) {
-    followUps.push("Is there anything specific I should prepare?");
+
+  // Follow-up questions
+  const followUps: string[] = [];
+  if (interview.status !== "ignored") {
+    const isRecruiterScreen = (interview.interviewType || "")
+      .toLowerCase()
+      .includes("recruiter");
+    const hasProjectShowcase = prepSignals.some(
+      (s) => s.signal === "project_showcase"
+    );
+    if (!interview.startDateTime) {
+      followUps.push("Could you confirm the available interview times?");
+    }
+    if (isRecruiterScreen) {
+      followUps.push("How long will the recruiter screen be?");
+    } else if (
+      !/\binterview\s+will\s+(?:last|run)/i.test(body) &&
+      !/\b\d+[-\s]?(?:hour|hr|minute|min)s?\s+(?:long\s+)?interview\b/i.test(body)
+    ) {
+      followUps.push("Could you confirm the total interview length?");
+    }
+    if (hasProjectShowcase) {
+      if (!/\bcoding\b/i.test(body)) {
+        followUps.push("Will there be a live coding portion?");
+      }
+      followUps.push("Is there a preferred format for the project showcase?");
+    }
+    if (
+      isRecruiterScreen &&
+      prepSignals.filter((s) => s.prepItems.length).length <= 2
+    ) {
+      followUps.push("Is there anything specific I should prepare?");
+    }
   }
 
   // Confidence explanation
   let confidenceExplanation = "";
-  if (interview.confidence >= 0.85 && interview.startDateTime) {
+  if (interview.status === "added_to_calendar" && interview.startDateTime) {
     confidenceExplanation =
       "The email contains strong interview language with a clear date and time, so it was added to your calendar.";
-  } else if (interview.confidence >= 0.6 && !interview.startDateTime) {
+  } else if (interview.status === "needs_review") {
     confidenceExplanation =
       "The email reads like a real recruiter outreach, but no exact date or time was found. It is marked needs review.";
   } else {
@@ -501,11 +785,21 @@ export function generateInterviewReport(
       "The email did not contain enough interview signals to be added to your calendar.";
   }
 
-  const report: InterviewReport = {
+  const decision = buildDecision(
+    interview,
+    prepSignals,
+    whatToPrepare,
+    evidenceFound
+  );
+
+  return {
     id: generateId("rep"),
     provider: interview.provider,
-    interviewId: interview.id,
     emailId: interview.emailId,
+    interviewId: interview.id,
+
+    outcome: interview.status,
+    confidence: interview.confidence,
 
     company: interview.company,
     role: interview.role,
@@ -516,24 +810,29 @@ export function generateInterviewReport(
     endDateTime: interview.endDateTime,
     timezone: interview.timezone,
 
-    location: interview.location,
     meetingLink: interview.meetingLink,
+    location: interview.location,
 
     emailSubject: interview.subject,
     emailSnippet: interview.snippet,
     sourceEmailBody: interview.body,
 
     confirmedDetails,
+    decision,
     evidenceFound,
     prepSignals,
     whatToPrepare,
     unknowns: dedupe(unknowns, (u) => u),
     suggestedFollowUpQuestions: dedupe(followUps, (q) => q),
+
     confidenceExplanation,
 
-    confidence: interview.confidence,
+    calendarEventId: interview.calendarEventId,
+    calendarEventUrl: interview.calendarEventUrl,
+
     createdAt: new Date().toISOString(),
   };
-
-  return report;
 }
+
+// Backwards-compatible alias
+export const generateInterviewReport = generateDecisionReport;

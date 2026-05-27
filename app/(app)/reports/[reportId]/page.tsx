@@ -61,7 +61,7 @@ export default function ReportDetailPage({ params }: Props) {
       <main className="container-page py-16">
         <div className="flex items-center gap-2 text-sm text-zinc-500">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading evidence-based prep report…
+          Loading decision report…
         </div>
       </main>
     );
@@ -71,11 +71,11 @@ export default function ReportDetailPage({ params }: Props) {
     return (
       <main className="container-page py-16">
         <h1 className="text-2xl font-semibold tracking-tight">
-          Report not found
+          Decision report not found
         </h1>
         <p className="mt-2 text-sm text-zinc-600">
-          We couldn&apos;t find this prep report. Try scanning your inbox from
-          the{" "}
+          We couldn&apos;t find this decision report. Try scanning your inbox
+          from the{" "}
           <Link href="/dashboard" className="text-accent-700 underline">
             dashboard
           </Link>
@@ -93,7 +93,7 @@ export default function ReportDetailPage({ params }: Props) {
           className="inline-flex items-center gap-1.5 text-xs text-zinc-600 hover:text-zinc-900"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
-          All reports
+          All decisions
         </Link>
       </div>
       <ReportView report={report} />

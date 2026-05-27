@@ -4,14 +4,15 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { FileWarning, Loader2, ScanLine } from "lucide-react";
 import { ReportView } from "@/components/ReportView";
-import type { InterviewReport } from "@/types/report";
+import { StatusBadge } from "@/components/StatusBadge";
+import type { DecisionReport } from "@/types/report";
 import { useScan } from "@/lib/use-ensure-scan";
 import { formatDateTime } from "@/lib/utils";
 
 export default function ReportsPage() {
   const demoMode = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
   const { scan, scanning, runScan } = useScan(true);
-  const [reports, setReports] = useState<InterviewReport[]>([]);
+  const [reports, setReports] = useState<DecisionReport[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -23,7 +24,6 @@ export default function ReportsPage() {
         .filter((r) => r.reportId)
         .map((r) => r.reportId!);
       if (ids.length === 0) {
-        // Fall back to latest report
         try {
           const res = await fetch("/api/tools/latest-report");
           const data = await res.json();
@@ -51,10 +51,21 @@ export default function ReportsPage() {
               `/api/tools/report-summary?reportId=${encodeURIComponent(id)}`
             );
             const data = await res.json();
-            return data.report as InterviewReport | undefined;
+            return data.report as DecisionReport | undefined;
           })
         );
-        const valid = fetched.filter(Boolean) as InterviewReport[];
+        const valid = (fetched.filter(Boolean) as DecisionReport[]).sort(
+          (a, b) => {
+            // Sort: added → needs_review → ignored → error
+            const order: Record<string, number> = {
+              added_to_calendar: 0,
+              needs_review: 1,
+              ignored: 2,
+              error: 3,
+            };
+            return (order[a.outcome] ?? 9) - (order[b.outcome] ?? 9);
+          }
+        );
         if (!cancelled) {
           setReports(valid);
           setActiveId((prev) => prev || valid[0]?.id || null);
@@ -80,7 +91,7 @@ export default function ReportsPage() {
       <main className="container-page py-16">
         <div className="flex items-center gap-2 text-sm text-zinc-500">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading evidence-based prep reports…
+          Loading decision reports…
         </div>
       </main>
     );
@@ -94,11 +105,11 @@ export default function ReportsPage() {
             <FileWarning className="h-5 w-5 text-zinc-500" />
           </div>
           <h1 className="mt-3 text-lg font-semibold tracking-tight">
-            No prep reports yet
+            No decision reports yet
           </h1>
           <p className="mt-1 text-sm text-zinc-600">
-            Reports are generated automatically when InterviewRadar finds an
-            interview email. Try running a scan from the dashboard.
+            Every scanned email gets a Decision Report explaining what
+            InterviewRadar did and why. Run a scan to see them.
           </p>
           <div className="mt-4 flex items-center justify-center gap-2">
             <button
@@ -124,19 +135,20 @@ export default function ReportsPage() {
       <header className="flex flex-wrap items-end justify-between gap-3 pb-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">
-            Prep reports
+            Decision Reports
           </h1>
           <p className="mt-1 text-sm text-zinc-600">
-            Every report is built only from phrases in the recruiter email.
-            Switch between reports below.
+            Every scanned email gets a transparent Decision Report explaining
+            what happened and why. Confirmed interviews also include an
+            evidence-based prep plan.
           </p>
         </div>
       </header>
 
-      <div className="grid gap-5 lg:grid-cols-[260px_1fr]">
+      <div className="grid gap-5 lg:grid-cols-[280px_1fr]">
         <aside className="space-y-1.5">
           <div className="section-title px-1">
-            All reports ({reports.length})
+            All decisions ({reports.length})
           </div>
           {reports.map((r) => {
             const active = r.id === activeReport.id;
@@ -168,7 +180,10 @@ export default function ReportsPage() {
                 <div className="mt-0.5 truncate text-xs text-zinc-500">
                   {r.role || r.emailSubject}
                 </div>
-                <div className="mt-0.5 text-xs text-zinc-500">
+                <div className="mt-1.5">
+                  <StatusBadge status={r.outcome} className="text-[10px]" />
+                </div>
+                <div className="mt-1 text-xs text-zinc-500">
                   {r.startDateTime ? formatDateTime(r.startDateTime) : "No date"}
                 </div>
               </button>

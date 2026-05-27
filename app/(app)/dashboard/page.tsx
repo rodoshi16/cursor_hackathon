@@ -1,8 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
-import { Inbox, ListFilter, RefreshCw, Search } from "lucide-react";
+import Link from "next/link";
+import { useMemo, useState } from "react";
+import { HelpCircle, Inbox, ListFilter, RefreshCw, Search, ScrollText } from "lucide-react";
 import { DashboardSummaryCards } from "@/components/DashboardSummaryCards";
+import { DecisionExplanationModal } from "@/components/DecisionExplanationModal";
 import { InterviewCard } from "@/components/InterviewCard";
 import { ProviderConnectCard } from "@/components/ProviderConnectCard";
 import type { InterviewEmail } from "@/types/interview";
@@ -176,6 +178,7 @@ function EmptyState({ label }: { label: string }) {
 }
 
 function IgnoredCard({ interview }: { interview: InterviewEmail }) {
+  const [whyOpen, setWhyOpen] = useState(false);
   return (
     <div className="rounded-xl border border-zinc-200/80 bg-white/60 p-3.5">
       <div className="flex items-center justify-between gap-2">
@@ -193,6 +196,31 @@ function IgnoredCard({ interview }: { interview: InterviewEmail }) {
         </span>
       </div>
       <p className="mt-2 text-xs text-zinc-500">{interview.reason}</p>
+      <div className="mt-2.5 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setWhyOpen(true)}
+          className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+        >
+          <HelpCircle className="h-3 w-3" />
+          Why was this ignored?
+        </button>
+        {interview.reportId && (
+          <Link
+            href={`/reports/${interview.reportId}`}
+            className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-100"
+          >
+            <ScrollText className="h-3 w-3" />
+            View Decision Report
+          </Link>
+        )}
+      </div>
+      <DecisionExplanationModal
+        reportId={interview.reportId}
+        fallbackTitle={interview.subject}
+        open={whyOpen}
+        onClose={() => setWhyOpen(false)}
+      />
     </div>
   );
 }

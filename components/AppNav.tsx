@@ -6,7 +6,7 @@ import { Headphones, LayoutDashboard, ScrollText } from "lucide-react";
 
 const TABS = [
   { href: "/dashboard", label: "Dashboard", Icon: LayoutDashboard },
-  { href: "/reports", label: "Prep Report", Icon: ScrollText },
+  { href: "/reports", label: "Decisions", Icon: ScrollText },
   { href: "/agent", label: "Voice Agent", Icon: Headphones },
 ] as const;
 

@@ -1,4 +1,4 @@
-import { getReportById } from "@/lib/store";
+import { getDecisionReportById } from "@/lib/store";
 import { formatDateTime, safeJsonResponse } from "@/lib/utils";
 
 export async function GET(req: Request) {
@@ -10,45 +10,49 @@ export async function GET(req: Request) {
       { status: 400 }
     );
   }
-  const report = getReportById(reportId);
+  const report = getDecisionReportById(reportId);
   if (!report) {
     return safeJsonResponse(
-      { ok: false, error: "Report not found." },
+      { ok: false, error: "Decision report not found." },
       { status: 404 }
     );
   }
 
   const lines: string[] = [];
+  lines.push(`Decision: ${report.outcome.replace(/_/g, " ")}.`);
   if (report.company || report.role) {
     lines.push(
-      `Interview${report.company ? ` with ${report.company}` : ""}${
-        report.role ? ` for the ${report.role} role` : ""
+      `${report.company ? report.company : "Unknown company"}${
+        report.role ? ` — ${report.role}` : ""
       }.`
     );
   }
-  if (report.interviewType) {
-    lines.push(`Type: ${report.interviewType}.`);
-  }
+  lines.push(report.decision.summary);
   if (report.startDateTime) {
     lines.push(`When: ${formatDateTime(report.startDateTime)}.`);
-  } else {
-    lines.push("No exact date or time was found.");
   }
-  if (report.evidenceFound.length) {
+  if (report.decision.evidence.length) {
     lines.push(
-      `Evidence from the email: ${report.evidenceFound
+      `Evidence from the email: ${report.decision.evidence
         .map((e) => `"${e}"`)
         .join(", ")}.`
     );
   }
+  if (report.decision.actionsTaken.length) {
+    lines.push("Actions taken:");
+    for (const a of report.decision.actionsTaken) lines.push(`- ${a.label}`);
+  }
   if (report.whatToPrepare.length) {
-    lines.push("What to prepare:");
+    lines.push("Prep (evidence-based):");
     for (const it of report.whatToPrepare) {
       lines.push(`- ${it.item} (Based on: "${it.evidence}")`);
     }
-  } else {
+  } else if (
+    report.outcome === "added_to_calendar" ||
+    report.outcome === "needs_review"
+  ) {
     lines.push(
-      "The email does not include enough detail to create a specific prep plan."
+      "No prep plan was created because the email did not include specific preparation instructions."
     );
   }
   if (report.unknowns.length) {

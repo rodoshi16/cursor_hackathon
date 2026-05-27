@@ -1,9 +1,9 @@
 import {
-  createBriefingScript,
+  createDecisionBriefingScript,
   hasElevenLabsTtsConfigured,
   textToSpeech,
 } from "@/lib/elevenlabs";
-import { getReportById } from "@/lib/store";
+import { getDecisionReportById } from "@/lib/store";
 import { safeJsonResponse } from "@/lib/utils";
 
 type Body = {
@@ -23,14 +23,14 @@ export async function POST(req: Request) {
   let usedReportScript = false;
 
   if (body.reportId) {
-    const report = getReportById(body.reportId);
+    const report = getDecisionReportById(body.reportId);
     if (!report) {
       return safeJsonResponse(
-        { ok: false, error: "Report not found." },
+        { ok: false, error: "Decision report not found." },
         { status: 404 }
       );
     }
-    script = createBriefingScript(report);
+    script = createDecisionBriefingScript(report);
     usedReportScript = true;
   }
 

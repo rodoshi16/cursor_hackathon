@@ -1,15 +1,34 @@
 # InterviewRadar
 
+> **InterviewRadar does not just scan emails — it explains every decision it
+> makes.**
+
 InterviewRadar is a voice-first interview assistant for job seekers. It
-connects to Gmail or Outlook, scans recent emails for real recruiter and
-interview messages, filters out generic application confirmations, adds
-confirmed interviews to Google Calendar or Outlook Calendar, and creates
-**Evidence-Based Prep Reports** you can listen to through an ElevenLabs voice.
+connects to Gmail or Outlook, scans recent emails, classifies each one as
+**Ignored / Needs Review / Added to Calendar**, and produces a transparent
+**Decision Report** for every email. For confirmed interviews, the Decision
+Report also includes an **Evidence-Based Prep Plan** you can listen to through
+an ElevenLabs voice.
+
+## Decision Reports
+
+Every scanned email gets a Decision Report explaining:
+
+- **Why** it was ignored, flagged, or added.
+- **What evidence was found** — the exact phrases pulled from the email.
+- **What actions were taken** — e.g. created calendar event, generated prep
+  plan, marked as needs review.
+- **What was not done** — e.g. did not invent interviewer name, did not add
+  live coding prep because the email did not mention it.
+- **What the user should do next.**
+
+For confirmed interviews the report also includes an **Evidence-Based Prep
+Plan** where every item is tied to a phrase from the recruiter email.
 
 ## The core rule — evidence-based reports
 
 InterviewRadar **does not** hallucinate prep advice. Every recommendation in a
-prep report is tied to a phrase from the original recruiter email.
+prep plan is tied to a phrase from the original recruiter email.
 
 - If the email says "project showcase", the report helps you prepare that.
 - If the email says "prepare a 10-minute presentation", that exact requirement
@@ -41,13 +60,13 @@ This MVP works without any external credentials. With
 `NEXT_PUBLIC_DEMO_MODE=true` (the default in `.env.local`):
 
 - `Scan All` returns three demo emails.
-- Generic Google application confirmation → **Ignored**.
-- Shopify final interview → **Added to calendar** (with a fake event ID and
-  link).
-- Wealthsimple recruiter screen → **Needs review** (asked for availability, no
-  exact time).
-- Real evidence-based reports are generated for the two interview-like
-  emails.
+- Generic Google application confirmation → **Ignored** (Decision Report still
+  generated, explaining why).
+- Shopify final interview → **Added to calendar** (Decision Report + Evidence
+  Based Prep Plan).
+- Wealthsimple recruiter screen → **Needs review** — asked for availability,
+  no exact time (Decision Report + Next Steps).
+- Every email — including ignored ones — gets a Decision Report.
 - No real OAuth or calendar API is required.
 - The voice agent panel works without ElevenLabs credentials and shows the
   exact script that would be spoken.

@@ -1,6 +1,6 @@
 import type { ConnectedAccount, EmailCalendarProvider } from "@/types/provider";
 import type { InterviewEmail } from "@/types/interview";
-import type { InterviewReport } from "@/types/report";
+import type { DecisionReport, InterviewReport } from "@/types/report";
 
 type CalendarEventRecord = {
   provider: EmailCalendarProvider;
@@ -13,7 +13,7 @@ type CalendarEventRecord = {
 type Store = {
   connectedAccounts: Map<EmailCalendarProvider, ConnectedAccount>;
   interviews: InterviewEmail[];
-  reports: InterviewReport[];
+  reports: DecisionReport[];
   calendarEvents: CalendarEventRecord[];
 };
 
@@ -70,28 +70,43 @@ export function getInterviewById(id: string): InterviewEmail | undefined {
   return getStore().interviews.find((i) => i.id === id);
 }
 
-export function saveReport(report: InterviewReport): InterviewReport {
+export function saveDecisionReport(report: DecisionReport): DecisionReport {
   const store = getStore();
-  const existingIdx = store.reports.findIndex((r) => r.id === report.id);
-  if (existingIdx >= 0) {
-    store.reports[existingIdx] = report;
+  // De-duplicate by provider + emailId so re-scanning the same email replaces
+  // its prior report instead of stacking.
+  const dupIdx = store.reports.findIndex(
+    (r) =>
+      r.id === report.id ||
+      (r.provider === report.provider && r.emailId === report.emailId)
+  );
+  if (dupIdx >= 0) {
+    store.reports[dupIdx] = report;
   } else {
     store.reports.unshift(report);
   }
   return report;
 }
 
-export function getReportById(id: string): InterviewReport | undefined {
+export function getDecisionReportById(id: string): DecisionReport | undefined {
   return getStore().reports.find((r) => r.id === id);
 }
 
-export function getReports(): InterviewReport[] {
+export function getDecisionReports(): DecisionReport[] {
   return [...getStore().reports];
 }
 
-export function getLatestReport(): InterviewReport | undefined {
+export function getLatestDecisionReport(): DecisionReport | undefined {
   return getStore().reports[0];
 }
+
+// Backwards-compatible aliases — older code uses these names.
+export const saveReport = saveDecisionReport;
+export const getReportById = getDecisionReportById;
+export const getReports = getDecisionReports;
+export const getLatestReport = getLatestDecisionReport;
+
+// Eslint helper: keep the alias import alive even if unused.
+export type { InterviewReport };
 
 export function getUpcomingInterviews(): InterviewEmail[] {
   const now = Date.now();
