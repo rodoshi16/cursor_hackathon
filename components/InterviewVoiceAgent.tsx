@@ -1,560 +1,668 @@
 "use client";
 
+import { Conversation } from "@elevenlabs/client";
+import Link from "next/link";
 import {
-  Headphones,
+  AlertTriangle,
+  CheckCircle2,
+  Copy,
   Loader2,
   Mic,
   MicOff,
-  PauseCircle,
   PhoneOff,
-  PlayCircle,
-  Sparkle,
-  Volume2,
-  Waves,
+  ScrollText,
+  Sparkles,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-type AgentState =
-  | "idle"
+type ConversationInstance = Awaited<
+  ReturnType<typeof Conversation.startSession>
+>;
+
+type AgentStatus =
+  | "checking"
+  | "needs_setup"
+  | "ready"
   | "connecting"
   | "listening"
-  | "thinking"
   | "speaking"
   | "disconnected"
   | "error";
 
-type ConfigResponse = {
+type TokenResponse = {
   agentId: string | null;
   configured: boolean;
-  message?: string;
   signedUrl?: string | null;
-};
-
-type ToolAction = {
-  id: string;
-  label: string;
-  detail?: string;
-  at: string;
+  message?: string;
 };
 
 type TranscriptEntry = {
   id: string;
-  speaker: "user" | "agent";
+  role: "user" | "agent";
   text: string;
 };
 
-const HELPFUL_PROMPTS = [
-  "Can you check if I have any interview emails?",
-  "Scan my Gmail.",
-  "Scan everything.",
-  "What interviews do I have coming up?",
-  "Read me my prep report.",
+const STARTER_QUESTIONS = [
+  "What's my next interview?",
+  "What do I need to prep?",
   "Which emails need review?",
-  "What should I prepare for my next interview?",
+  "Why was the Google email ignored?",
 ];
 
-const SEED_TRANSCRIPT: TranscriptEntry[] = [
+const SYSTEM_PROMPT_TEMPLATE = `You are InterviewRadar's voice agent. You help Sarah understand and act on her recruiter emails.
+
+Core rule (do not break): only repeat facts that exist in the data returned by your tools. Never invent interview times, formats, interviewers, prep items, or company names. If the email does not include something, say "the email doesn't mention that."
+
+Tone: warm but concise. Speak in short, natural sentences (1-3 at a time), like a calm assistant. No lists when speaking — use "first… second… and finally…".
+
+Use the available tools to answer:
+- scan_inbox — re-scan Gmail/Outlook for recruiter emails.
+- get_upcoming_interviews — list confirmed and review-needed interviews.
+- get_latest_decision_report — load the most recent decision report.
+- get_decision_report — fetch a specific decision report by id.
+
+When the user asks about preparing, only mention prep items that come back from the report's "whatToPrepare" list, and include the phrase the recommendation is based on. Example: "Prepare a 10-minute project showcase, based on the phrase 'prepare a 10-minute project showcase'."
+
+When asked why something was ignored, repeat the report's decision.summary and decision.why fields.
+
+Always keep follow-up questions in mind so the conversation feels natural.`;
+
+const TOOL_DEFINITIONS = [
   {
-    id: "u1",
-    speaker: "user",
-    text: "Can you scan my inbox for interviews?",
+    name: "scan_inbox",
+    description:
+      "Scan Gmail and Outlook for recruiter emails and return a summary of the scan (scannedCount, interviewsFound, eventsCreated, needsReview, ignoredCount).",
+    parameters: {
+      type: "object",
+      properties: {
+        provider: {
+          type: "string",
+          enum: ["google", "microsoft", "all"],
+          description: "Which inbox to scan. Defaults to 'all'.",
+        },
+      },
+    },
   },
   {
-    id: "a1",
-    speaker: "agent",
-    text:
-      "I found two interview-related emails. One Shopify final interview was added to your calendar. One Wealthsimple recruiter screen needs review because the email asks for availability but does not include a specific time.",
+    name: "get_upcoming_interviews",
+    description:
+      "List upcoming interviews InterviewRadar has detected. Each entry includes company, role, status, date/time, meeting link, and a reportId for the full Decision Report.",
+    parameters: { type: "object", properties: {} },
   },
   {
-    id: "u2",
-    speaker: "user",
-    text: "What should I prepare for Shopify?",
+    name: "get_latest_decision_report",
+    description:
+      "Fetch the most recent Decision Report (any outcome). Contains decision.summary, decision.why, evidence, actionsTaken, actionsNotTaken, whatToPrepare, unknowns, and suggestedFollowUpQuestions.",
+    parameters: { type: "object", properties: {} },
   },
   {
-    id: "a2",
-    speaker: "agent",
-    text:
-      "Based on the email, prepare a 10-minute project showcase. The email also says to discuss implementation decisions, challenges, and technical tradeoffs. It does not mention live coding.",
+    name: "get_decision_report",
+    description:
+      "Fetch a specific Decision Report by id.",
+    parameters: {
+      type: "object",
+      properties: {
+        reportId: {
+          type: "string",
+          description: "The reportId returned by other tools.",
+        },
+      },
+      required: ["reportId"],
+    },
   },
 ];
 
-const SEED_TOOL_ACTIONS: ToolAction[] = [
-  {
-    id: "t1",
-    label: "Scanned Gmail",
-    detail: "3 emails reviewed",
-    at: "just now",
-  },
-  {
-    id: "t2",
-    label: "Ignored Google application confirmation",
-    at: "just now",
-  },
-  {
-    id: "t3",
-    label: "Added Shopify interview to calendar",
-    detail: "Friday, May 29 · 2:00 PM",
-    at: "just now",
-  },
-  {
-    id: "t4",
-    label: "Generated evidence-based prep report",
-    detail: "Shopify · Project Showcase",
-    at: "just now",
-  },
-  {
-    id: "t5",
-    label: "Flagged Wealthsimple email as needs review",
-    detail: "Asked for availability — no exact time",
-    at: "just now",
-  },
-];
-
-function StateDot({ state }: { state: AgentState }) {
-  const map: Record<AgentState, { color: string; label: string }> = {
-    idle: { color: "bg-zinc-300", label: "Idle" },
-    connecting: { color: "bg-amber-400 animate-pulseDot", label: "Connecting" },
-    listening: { color: "bg-accent-500 animate-pulseDot", label: "Listening" },
-    thinking: { color: "bg-sky-500 animate-pulseDot", label: "Thinking" },
-    speaking: { color: "bg-accent-600 animate-pulseDot", label: "Speaking" },
-    disconnected: { color: "bg-zinc-400", label: "Disconnected" },
-    error: { color: "bg-red-500", label: "Error" },
+function StatusPill({ status }: { status: AgentStatus }) {
+  const map: Record<AgentStatus, { label: string; cls: string; dot: string }> = {
+    checking: {
+      label: "Checking setup…",
+      cls: "bg-zinc-50 text-zinc-600 border-zinc-200",
+      dot: "bg-zinc-400",
+    },
+    needs_setup: {
+      label: "Setup required",
+      cls: "bg-amber-50 text-amber-800 border-amber-200",
+      dot: "bg-amber-500",
+    },
+    ready: {
+      label: "Ready",
+      cls: "bg-zinc-50 text-zinc-700 border-zinc-200",
+      dot: "bg-zinc-400",
+    },
+    connecting: {
+      label: "Connecting…",
+      cls: "bg-amber-50 text-amber-800 border-amber-200",
+      dot: "bg-amber-500 animate-pulseDot",
+    },
+    listening: {
+      label: "Listening",
+      cls: "bg-accent-50 text-accent-800 border-accent-200",
+      dot: "bg-accent-500 animate-pulseDot",
+    },
+    speaking: {
+      label: "Speaking",
+      cls: "bg-accent-50 text-accent-800 border-accent-200",
+      dot: "bg-accent-600 animate-pulseDot",
+    },
+    disconnected: {
+      label: "Disconnected",
+      cls: "bg-zinc-50 text-zinc-600 border-zinc-200",
+      dot: "bg-zinc-400",
+    },
+    error: {
+      label: "Error",
+      cls: "bg-red-50 text-red-700 border-red-200",
+      dot: "bg-red-500",
+    },
   };
-  const meta = map[state];
+  const m = map[status];
   return (
-    <span className="inline-flex items-center gap-2 text-xs text-zinc-600">
-      <span className={`dot ${meta.color}`} />
-      {meta.label}
+    <span className={`chip border ${m.cls}`}>
+      <span className={`dot ${m.dot}`} />
+      {m.label}
     </span>
   );
 }
 
+function Waveform({
+  conversation,
+  active,
+}: {
+  conversation: ConversationInstance | null;
+  active: boolean;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!conversation || !active) {
+      const c = canvasRef.current;
+      if (c) c.getContext("2d")?.clearRect(0, 0, c.width, c.height);
+      return;
+    }
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    function draw() {
+      if (!canvas || !ctx) return;
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      if (canvas.width !== rect.width * dpr) {
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, rect.width, rect.height);
+
+      let data: Uint8Array;
+      try {
+        data =
+          conversation && (conversation as any).getOutputByteFrequencyData
+            ? (conversation as any).getOutputByteFrequencyData()
+            : new Uint8Array(64);
+      } catch {
+        data = new Uint8Array(64);
+      }
+      // Pull input frequency too (when user is speaking).
+      let input: Uint8Array;
+      try {
+        input =
+          conversation && (conversation as any).getInputByteFrequencyData
+            ? (conversation as any).getInputByteFrequencyData()
+            : new Uint8Array(64);
+      } catch {
+        input = new Uint8Array(64);
+      }
+
+      const N = Math.min(48, data.length);
+      const barWidth = rect.width / N;
+      const midY = rect.height / 2;
+      ctx.fillStyle = "#1d5b42";
+      for (let i = 0; i < N; i++) {
+        const v = Math.max(data[i] / 255, input[i] / 255);
+        const h = Math.max(2, v * (rect.height * 0.8));
+        const x = i * barWidth + barWidth * 0.15;
+        const w = barWidth * 0.7;
+        ctx.fillRect(x, midY - h / 2, w, h);
+      }
+      rafRef.current = requestAnimationFrame(draw);
+    }
+    rafRef.current = requestAnimationFrame(draw);
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [conversation, active]);
+
+  return <canvas ref={canvasRef} className="h-16 w-full rounded-md" />;
+}
+
 export function InterviewVoiceAgent() {
-  const [state, setState] = useState<AgentState>("idle");
-  const [config, setConfig] = useState<ConfigResponse | null>(null);
+  const [status, setStatus] = useState<AgentStatus>("checking");
+  const [token, setToken] = useState<TokenResponse | null>(null);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
-  const [toolActions, setToolActions] = useState<ToolAction[]>([]);
-  const [lastAgentText, setLastAgentText] = useState<string | null>(null);
-  const [scriptFallback, setScriptFallback] = useState<string | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const transcriptIdxRef = useRef(0);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [muted, setMuted] = useState(false);
+  const [showSetup, setShowSetup] = useState(false);
+  const conversationRef = useRef<ConversationInstance | null>(null);
+  const transcriptIdRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
     fetch("/api/voice/agent-token")
       .then((r) => r.json())
-      .then((c) => {
-        if (!cancelled) setConfig(c);
+      .then((t: TokenResponse) => {
+        if (cancelled) return;
+        setToken(t);
+        setStatus(t.configured ? "ready" : "needs_setup");
       })
       .catch(() => {
-        if (!cancelled)
-          setConfig({
-            agentId: null,
-            configured: false,
-            message: "Could not reach agent endpoint.",
-          });
+        if (cancelled) return;
+        setStatus("needs_setup");
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const stopAudio = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-    }
+  useEffect(() => {
+    return () => {
+      void conversationRef.current?.endSession();
+    };
   }, []);
 
-  function startSession() {
-    setState("connecting");
-    setTranscript([]);
-    setToolActions([]);
-    setLastAgentText(null);
-    setScriptFallback(null);
-    transcriptIdxRef.current = 0;
+  const appendTranscript = useCallback(
+    (role: "user" | "agent", text: string) => {
+      const id = `t_${++transcriptIdRef.current}`;
+      setTranscript((prev) => [...prev, { id, role, text }]);
+    },
+    []
+  );
 
-    // Real ElevenLabs Conversational AI WebSocket integration would go here,
-    // using the signedUrl from /api/voice/agent-token plus the official
-    // @11labs/client SDK. We keep the polished UI fallback for the demo so the
-    // app works without credentials.
-    setTimeout(() => {
-      setState("listening");
-      stepTranscript();
-    }, 700);
-  }
-
-  function endSession() {
-    stopAudio();
-    setState("disconnected");
-  }
-
-  const stepTranscript = useCallback(() => {
-    if (transcriptIdxRef.current >= SEED_TRANSCRIPT.length) {
-      setState("listening");
+  const startConversation = useCallback(async () => {
+    if (!token?.configured || !token.agentId) {
+      setShowSetup(true);
       return;
     }
-    const next = SEED_TRANSCRIPT[transcriptIdxRef.current];
-    transcriptIdxRef.current += 1;
-
-    if (next.speaker === "user") {
-      setTranscript((t) => [...t, next]);
-      setState("thinking");
-      setTimeout(() => stepTranscript(), 900);
-    } else {
-      setLastAgentText(next.text);
-      setTranscript((t) => [...t, next]);
-      setState("speaking");
-      setTimeout(() => {
-        setState(
-          transcriptIdxRef.current >= SEED_TRANSCRIPT.length
-            ? "listening"
-            : "listening"
-        );
-        setTimeout(() => stepTranscript(), 400);
-      }, 1800);
-    }
-  }, []);
-
-  async function runDemoScan() {
-    setTranscript((t) => [
-      ...t,
-      {
-        id: `u_${Date.now()}`,
-        speaker: "user",
-        text: "Scan my inbox.",
-      },
-    ]);
-    setState("thinking");
+    setErrorMsg(null);
+    setTranscript([]);
+    setStatus("connecting");
     try {
-      const res = await fetch("/api/tools/scan-inbox", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: "all" }),
-      });
-      const data = await res.json();
-      const message =
-        data.message || "Inbox scanned. See your dashboard for details.";
-      setLastAgentText(message);
-      setTranscript((t) => [
-        ...t,
-        { id: `a_${Date.now()}`, speaker: "agent", text: message },
-      ]);
-      setToolActions((acts) => [
-        ...acts,
-        {
-          id: `act_${Date.now()}`,
-          label: "Called scan-inbox tool",
-          detail: `${data.scanResult?.scannedCount ?? 0} emails reviewed`,
-          at: "just now",
+      // The browser prompts for mic permission inside startSession.
+      const sessionConfig: Parameters<typeof Conversation.startSession>[0] = {
+        // Prefer signed URL when available (private agents).
+        ...(token.signedUrl
+          ? { signedUrl: token.signedUrl }
+          : { agentId: token.agentId }),
+        clientTools: {
+          scan_inbox: async ({ provider }: { provider?: string }) => {
+            const res = await fetch("/api/tools/scan-inbox", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ provider: provider || "all" }),
+            });
+            const data = await res.json();
+            return JSON.stringify(data);
+          },
+          get_upcoming_interviews: async () => {
+            const res = await fetch("/api/tools/upcoming-interviews");
+            return JSON.stringify(await res.json());
+          },
+          get_latest_decision_report: async () => {
+            const res = await fetch("/api/tools/latest-report");
+            return JSON.stringify(await res.json());
+          },
+          get_decision_report: async ({ reportId }: { reportId: string }) => {
+            const res = await fetch(
+              `/api/tools/report-summary?reportId=${encodeURIComponent(
+                reportId
+              )}`
+            );
+            return JSON.stringify(await res.json());
+          },
         },
-      ]);
-      await speak(message);
-    } catch {
-      setState("error");
+        onConnect: () => setStatus("listening"),
+        onDisconnect: () => setStatus("disconnected"),
+        onError: (m) => {
+          setErrorMsg(m);
+          setStatus("error");
+        },
+        onModeChange: ({ mode }) => {
+          if (mode === "speaking") setStatus("speaking");
+          else if (mode === "listening") setStatus("listening");
+        },
+        onMessage: ({ message, source }) => {
+          if (!message) return;
+          appendTranscript(source === "ai" ? "agent" : "user", message);
+        },
+      };
+      const conv = await Conversation.startSession(sessionConfig);
+      conversationRef.current = conv;
+    } catch (err) {
+      console.error(err);
+      setErrorMsg(
+        err instanceof Error ? err.message : "Failed to start the agent."
+      );
+      setStatus("error");
     }
-  }
+  }, [appendTranscript, token]);
 
-  async function readLatestReport() {
-    setTranscript((t) => [
-      ...t,
-      {
-        id: `u_${Date.now()}`,
-        speaker: "user",
-        text: "Read me my latest prep report.",
-      },
-    ]);
-    setState("thinking");
+  const endConversation = useCallback(async () => {
     try {
-      const res = await fetch("/api/tools/latest-report");
-      const data = await res.json();
-      if (!data.report) {
-        const msg =
-          "There is no prep report yet. Try running a scan from the dashboard or asking me to scan your inbox.";
-        setLastAgentText(msg);
-        setTranscript((t) => [
-          ...t,
-          { id: `a_${Date.now()}`, speaker: "agent", text: msg },
-        ]);
-        await speak(msg);
+      await conversationRef.current?.endSession();
+    } finally {
+      conversationRef.current = null;
+      setStatus(token?.configured ? "ready" : "needs_setup");
+    }
+  }, [token]);
+
+  const toggleMute = useCallback(() => {
+    const conv = conversationRef.current;
+    if (!conv) return;
+    const next = !muted;
+    conv.setMicMuted(next);
+    setMuted(next);
+  }, [muted]);
+
+  const sendQuickQuestion = useCallback(
+    (q: string) => {
+      const conv = conversationRef.current;
+      if (!conv) {
+        void startConversation();
         return;
       }
-      setToolActions((acts) => [
-        ...acts,
-        {
-          id: `act_${Date.now()}`,
-          label: "Loaded latest evidence-based report",
-          detail: `${data.report.company || "Unknown"} · ${
-            data.report.interviewType || "Interview"
-          }`,
-          at: "just now",
-        },
-      ]);
-      const summaryRes = await fetch(
-        `/api/tools/report-summary?reportId=${encodeURIComponent(
-          data.report.id
-        )}`
-      );
-      const summary = await summaryRes.json();
-      const introMsg =
-        summary.summary || "Reading your latest evidence-based briefing.";
-      setLastAgentText(introMsg);
-      setTranscript((t) => [
-        ...t,
-        { id: `a_${Date.now()}`, speaker: "agent", text: introMsg },
-      ]);
-      await speakReport(data.report.id);
-    } catch {
-      setState("error");
-    }
-  }
+      conv.sendUserMessage(q);
+      appendTranscript("user", q);
+    },
+    [appendTranscript, startConversation]
+  );
 
-  async function speak(text: string) {
-    setState("speaking");
-    try {
-      const res = await fetch("/api/voice/speak", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      });
-      const ct = res.headers.get("Content-Type") || "";
-      if (ct.includes("audio/mpeg")) {
-        const blob = await res.blob();
-        const audio = new Audio(URL.createObjectURL(blob));
-        audioRef.current = audio;
-        audio.play();
-        audio.onended = () => setState("listening");
-      } else {
-        const data = await res.json();
-        setScriptFallback(data.script || text);
-        setState("listening");
-      }
-    } catch {
-      setState("error");
-    }
-  }
-
-  async function speakReport(reportId: string) {
-    setState("speaking");
-    try {
-      const res = await fetch("/api/voice/speak", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reportId }),
-      });
-      const ct = res.headers.get("Content-Type") || "";
-      if (ct.includes("audio/mpeg")) {
-        const blob = await res.blob();
-        const audio = new Audio(URL.createObjectURL(blob));
-        audioRef.current = audio;
-        audio.play();
-        audio.onended = () => setState("listening");
-      } else {
-        const data = await res.json();
-        setScriptFallback(data.script || "No briefing available.");
-        setState("listening");
-      }
-    } catch {
-      setState("error");
-    }
-  }
-
-  const live = state !== "idle" && state !== "disconnected" && state !== "error";
+  const live =
+    status === "listening" || status === "speaking" || status === "connecting";
 
   return (
     <div className="surface overflow-hidden">
-      <header className="flex items-start justify-between gap-3 border-b border-zinc-100 p-4">
-        <div className="flex items-start gap-3">
-          <div className="grid h-9 w-9 place-items-center rounded-md bg-zinc-900 text-white">
-            <Headphones className="h-4 w-4" />
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-100 px-5 py-4">
+        <div className="flex items-center gap-3">
+          <div className="grid h-9 w-9 place-items-center rounded-full bg-zinc-900 text-white">
+            <Sparkles className="h-4 w-4" />
           </div>
-          <div>
-            <h3 className="text-sm font-semibold tracking-tight text-zinc-900">
-              Talk to Interview Agent
-            </h3>
-            <p className="mt-0.5 max-w-xl text-xs text-zinc-600">
-              Ask InterviewRadar to scan your inbox, find interviews, add
-              confirmed events to your calendar, and read evidence-based prep
-              reports out loud.
-            </p>
+          <div className="leading-tight">
+            <div className="text-sm font-semibold tracking-tight text-zinc-900">
+              Interview agent
+            </div>
+            <div className="text-[11px] text-zinc-500">
+              ElevenLabs Conversational AI · grounded in your inbox.
+            </div>
           </div>
         </div>
-        <div className="hidden sm:block">
-          <StateDot state={state} />
-        </div>
+        <StatusPill status={status} />
       </header>
 
-      <div className="grid gap-0 md:grid-cols-[1.15fr_1fr]">
-        <div className="p-4 md:border-r md:border-zinc-100">
-          <div className="flex flex-wrap items-center gap-2">
-            {!live ? (
+      <div className="px-5 py-6">
+        {/* Main call surface */}
+        <div className="grid place-items-center">
+          <Waveform conversation={conversationRef.current} active={live} />
+
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+            {!live && status !== "needs_setup" && (
               <button
                 type="button"
-                onClick={startSession}
-                className="btn-accent"
+                onClick={startConversation}
+                disabled={status === "checking"}
+                className="btn-accent !px-5 !py-2.5"
               >
-                <Mic className="h-3.5 w-3.5" />
-                Start voice agent
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={endSession}
-                className="btn-secondary"
-              >
-                <PhoneOff className="h-3.5 w-3.5" />
-                End call
+                <Mic className="h-4 w-4" />
+                Start conversation
               </button>
             )}
-            <button
-              type="button"
-              onClick={runDemoScan}
-              className="btn-secondary"
-            >
-              <Sparkle className="h-3.5 w-3.5" />
-              Demo: scan inbox
-            </button>
-            <button
-              type="button"
-              onClick={readLatestReport}
-              className="btn-secondary"
-            >
-              <Waves className="h-3.5 w-3.5" />
-              Demo: read latest report
-            </button>
-            <span className="ml-auto sm:hidden">
-              <StateDot state={state} />
-            </span>
+            {live && (
+              <>
+                <button
+                  type="button"
+                  onClick={toggleMute}
+                  className="btn-secondary"
+                >
+                  {muted ? (
+                    <>
+                      <MicOff className="h-3.5 w-3.5" />
+                      Unmute
+                    </>
+                  ) : (
+                    <>
+                      <Mic className="h-3.5 w-3.5" />
+                      Mute
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={endConversation}
+                  className="btn-primary"
+                >
+                  <PhoneOff className="h-3.5 w-3.5" />
+                  End call
+                </button>
+              </>
+            )}
+            {status === "needs_setup" && (
+              <button
+                type="button"
+                onClick={() => setShowSetup(true)}
+                className="btn-primary"
+              >
+                <AlertTriangle className="h-4 w-4" />
+                Configure ElevenLabs agent
+              </button>
+            )}
           </div>
 
-          {config && !config.configured && (
-            <div className="mt-3 rounded-md border border-zinc-200 bg-zinc-50 p-2.5 text-xs text-zinc-600">
-              {config.message}
+          {errorMsg && (
+            <div className="mt-4 max-w-md rounded-md border border-red-200 bg-red-50/70 p-2.5 text-xs text-red-800">
+              {errorMsg}
             </div>
           )}
 
-          <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50/60 p-3">
-            <div className="section-title">Transcript</div>
-            <div className="mt-2 max-h-64 space-y-2.5 overflow-y-auto scrollbar-thin pr-1">
-              {transcript.length === 0 ? (
-                <div className="text-xs text-zinc-500">
-                  Press <span className="kbd">Start voice agent</span> to begin
-                  a conversation, or try one of the demo buttons above.
-                </div>
-              ) : (
-                transcript.map((entry) => (
-                  <div key={entry.id} className="text-sm">
-                    <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-zinc-500">
-                      {entry.speaker === "user" ? "You" : "Agent"}
-                    </div>
-                    <div
-                      className={
-                        entry.speaker === "user"
-                          ? "text-zinc-800"
-                          : "text-zinc-900"
-                      }
-                    >
-                      {entry.text}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {lastAgentText && (
-            <div className="mt-3 rounded-md border border-accent-200 bg-accent-50/50 p-3">
-              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-accent-800">
-                <Volume2 className="h-3 w-3" /> Last agent response
-              </div>
-              <p className="mt-1 text-sm leading-relaxed text-zinc-800">
-                {lastAgentText}
-              </p>
-            </div>
-          )}
-
-          {scriptFallback && (
-            <div className="mt-3 rounded-md border border-amber-200 bg-amber-50/60 p-3 text-xs text-amber-900">
-              <div className="mb-1 font-semibold">
-                ElevenLabs not configured — script that would be spoken:
-              </div>
-              <p className="whitespace-pre-wrap leading-relaxed">
-                {scriptFallback}
-              </p>
+          {/* Quick prompts */}
+          {(status === "ready" || live) && (
+            <div className="mt-5 flex flex-wrap items-center justify-center gap-1.5">
+              {STARTER_QUESTIONS.map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  onClick={() => sendQuickQuestion(q)}
+                  className="chip border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-100"
+                  title={live ? "Send this to the agent" : "Start a call with this question"}
+                >
+                  {q}
+                </button>
+              ))}
             </div>
           )}
         </div>
 
-        <div className="p-4">
-          <div className="section-title">Helpful prompts</div>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {HELPFUL_PROMPTS.map((p) => (
-              <span
-                key={p}
-                className="chip border-zinc-200 bg-white text-zinc-700"
-              >
-                {p}
-              </span>
-            ))}
-          </div>
-
-          <div className="mt-4 section-title">Tool actions</div>
-          <ul className="mt-2 space-y-1.5">
-            {(toolActions.length ? toolActions : SEED_TOOL_ACTIONS).map(
-              (act) => (
-                <li
-                  key={act.id}
-                  className="flex items-start gap-2 rounded-md border border-zinc-100 bg-white px-2.5 py-1.5 text-xs text-zinc-700"
+        {/* Transcript */}
+        {transcript.length > 0 && (
+          <div className="mt-6 rounded-lg border border-zinc-200 bg-zinc-50/50 p-3">
+            <div className="section-title px-1">Transcript</div>
+            <div className="mt-2 max-h-72 space-y-2 overflow-y-auto scrollbar-thin pr-1">
+              {transcript.map((t) => (
+                <div
+                  key={t.id}
+                  className={`flex ${
+                    t.role === "user" ? "justify-end" : "justify-start"
+                  }`}
                 >
-                  <span className="mt-0.5 dot bg-accent-500" />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium text-zinc-900">
-                      {act.label}
-                    </div>
-                    {act.detail && (
-                      <div className="truncate text-zinc-500">
-                        {act.detail}
-                      </div>
-                    )}
+                  <div
+                    className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm leading-relaxed ${
+                      t.role === "user"
+                        ? "bg-zinc-900 text-white"
+                        : "border border-zinc-200 bg-white text-zinc-900"
+                    }`}
+                  >
+                    {t.text}
                   </div>
-                  <span className="text-zinc-400">{act.at}</span>
-                </li>
-              )
-            )}
-          </ul>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
-          <div className="mt-4 flex items-center gap-2 text-[11px] text-zinc-500">
-            {state === "speaking" ? (
-              <PauseCircle className="h-3.5 w-3.5" />
-            ) : state === "listening" ? (
-              <Mic className="h-3.5 w-3.5" />
-            ) : state === "thinking" ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <PlayCircle className="h-3.5 w-3.5" />
-            )}
-            <span>
-              Voice replies use ElevenLabs TTS when{" "}
-              <span className="kbd">ELEVENLABS_API_KEY</span> is set. Otherwise
-              the script that would be spoken is displayed.
-            </span>
+        <div className="mt-5 grid gap-3 text-xs text-zinc-500 sm:grid-cols-2">
+          <div className="flex items-start gap-2">
+            <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 text-accent-700" />
+            The agent only repeats facts from your scanned inbox. Prep advice
+            is tied to phrases from the recruiter email — never invented.
+          </div>
+          <div className="flex items-start gap-2">
+            <ScrollText className="mt-0.5 h-3.5 w-3.5 text-zinc-600" />
+            Need more detail?{" "}
+            <Link href="/reports" className="underline hover:text-zinc-800">
+              Open the Decision Reports
+            </Link>{" "}
+            for the full evidence breakdown.
           </div>
         </div>
       </div>
 
-      {/*
-        Note: The full ElevenLabs Conversational AI experience uses a WebSocket
-        connection through @11labs/client to drive turn-by-turn audio with tool
-        calls hitting /api/tools/*. The fetch to /api/voice/agent-token above
-        returns the signed URL needed for that. When ELEVENLABS_AGENT_ID is set,
-        wire up the SDK here. The simulated transcript keeps the demo polished
-        regardless of credentials.
-      */}
-      <noscript>
-        <span className="hidden">
-          <MicOff />
-        </span>
-      </noscript>
+      {showSetup && (
+        <SetupOverlay
+          token={token}
+          onClose={() => setShowSetup(false)}
+          onRetry={() => {
+            setStatus("checking");
+            fetch("/api/voice/agent-token")
+              .then((r) => r.json())
+              .then((t: TokenResponse) => {
+                setToken(t);
+                setStatus(t.configured ? "ready" : "needs_setup");
+                if (t.configured) setShowSetup(false);
+              })
+              .catch(() => setStatus("needs_setup"));
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function CopyButton({ text, label }: { text: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        } catch {
+          // ignore
+        }
+      }}
+      className="btn-secondary !py-1 text-xs"
+    >
+      <Copy className="h-3 w-3" />
+      {copied ? "Copied" : label}
+    </button>
+  );
+}
+
+function SetupOverlay({
+  token,
+  onClose,
+  onRetry,
+}: {
+  token: TokenResponse | null;
+  onClose: () => void;
+  onRetry: () => void;
+}) {
+  const toolsJson = JSON.stringify(TOOL_DEFINITIONS, null, 2);
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-zinc-900/40 backdrop-blur-sm sm:items-center"
+      onClick={onClose}
+    >
+      <div
+        className="surface w-full max-w-2xl overflow-hidden rounded-t-2xl border-zinc-200 shadow-card sm:rounded-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="flex items-start justify-between gap-3 border-b border-zinc-100 p-4">
+          <div>
+            <h2 className="text-base font-semibold tracking-tight text-zinc-900">
+              Connect your ElevenLabs agent
+            </h2>
+            <p className="mt-0.5 text-xs text-zinc-600">
+              {token?.message ||
+                "Set up a Conversational AI agent on ElevenLabs, paste the values below, then point this app at it."}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="btn-ghost !py-1 text-xs"
+          >
+            Close
+          </button>
+        </header>
+        <div className="max-h-[70vh] overflow-y-auto scrollbar-thin px-4 py-4">
+          <ol className="list-decimal space-y-4 pl-5 text-sm text-zinc-800">
+            <li>
+              Create a Conversational AI agent at{" "}
+              <a
+                href="https://elevenlabs.io/app/conversational-ai"
+                target="_blank"
+                rel="noreferrer"
+                className="text-accent-700 underline"
+              >
+                elevenlabs.io/app/conversational-ai
+              </a>
+              .
+            </li>
+            <li>
+              Paste this system prompt into the agent&apos;s{" "}
+              <span className="font-medium">Prompt</span> field:
+              <div className="mt-2 rounded-md border border-zinc-200 bg-zinc-50 p-3 font-mono text-xs leading-relaxed text-zinc-800">
+                <div className="mb-2 flex justify-end">
+                  <CopyButton text={SYSTEM_PROMPT_TEMPLATE} label="Copy prompt" />
+                </div>
+                <pre className="whitespace-pre-wrap">
+                  {SYSTEM_PROMPT_TEMPLATE}
+                </pre>
+              </div>
+            </li>
+            <li>
+              Add these <span className="font-medium">client tools</span> to
+              the agent (name + parameters; leave the handler empty — the app
+              runs them in the browser):
+              <div className="mt-2 rounded-md border border-zinc-200 bg-zinc-50 p-3 font-mono text-xs leading-relaxed text-zinc-800">
+                <div className="mb-2 flex justify-end">
+                  <CopyButton text={toolsJson} label="Copy tools JSON" />
+                </div>
+                <pre className="whitespace-pre-wrap">{toolsJson}</pre>
+              </div>
+            </li>
+            <li>
+              Put these in your <span className="font-mono">.env.local</span>{" "}
+              and restart{" "}
+              <span className="font-mono">npm run dev</span>:
+              <div className="mt-2 rounded-md border border-zinc-200 bg-zinc-50 p-3 font-mono text-xs leading-relaxed text-zinc-800">
+                <pre className="whitespace-pre-wrap">
+{`ELEVENLABS_API_KEY=sk-...
+ELEVENLABS_AGENT_ID=agent_...`}
+                </pre>
+              </div>
+            </li>
+          </ol>
+        </div>
+        <footer className="flex items-center justify-end gap-2 border-t border-zinc-100 bg-zinc-50/60 p-3">
+          <button type="button" onClick={onRetry} className="btn-primary">
+            <Loader2 className="h-3.5 w-3.5" />
+            Re-check setup
+          </button>
+        </footer>
+      </div>
     </div>
   );
 }

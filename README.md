@@ -150,17 +150,28 @@ Requested scopes:
 
 ## ElevenLabs setup
 
-1. Get an [ElevenLabs API key](https://elevenlabs.io).
-2. Choose a voice and copy its voice ID into `ELEVENLABS_VOICE_ID`.
-3. Optional: create a Conversational AI Agent and put its ID into
-   `ELEVENLABS_AGENT_ID`.
-4. For the full WebSocket agent experience, configure tools to call:
-   - `POST /api/tools/scan-inbox`
-   - `GET /api/tools/upcoming-interviews`
-   - `GET /api/tools/latest-report`
-   - `GET /api/tools/report-summary?reportId=…`
-   - `POST /api/tools/create-calendar-event`
-5. Use the system prompt below.
+The `/agent` page is a real ElevenLabs Conversational AI voice loop — you press
+**Start conversation**, talk to the agent, and it talks back, calling tools to
+pull data from your inbox.
+
+1. Get an [ElevenLabs API key](https://elevenlabs.io). Put it in
+   `ELEVENLABS_API_KEY`.
+2. (Optional) Choose a voice for read-aloud briefings and put the ID into
+   `ELEVENLABS_VOICE_ID`.
+3. Create a Conversational AI agent at
+   [elevenlabs.io/app/conversational-ai](https://elevenlabs.io/app/conversational-ai)
+   and put its agent ID into `ELEVENLABS_AGENT_ID`.
+4. In the agent's **Prompt** field, paste the system prompt shown on the
+   `/agent` setup screen (it enforces evidence-based answers). The same prompt
+   is reproduced below for reference.
+5. Add these **Client Tools** to the agent — they run in the browser and call
+   InterviewRadar's `/api/tools/*` routes. The setup overlay on `/agent` has a
+   one-click "Copy tools JSON" button:
+   - `scan_inbox(provider?: "google" | "microsoft" | "all")`
+   - `get_upcoming_interviews()`
+   - `get_latest_decision_report()`
+   - `get_decision_report(reportId: string)`
+6. Restart `npm run dev`, open `/agent`, and press **Start conversation**.
 
 ### Agent system prompt
 
