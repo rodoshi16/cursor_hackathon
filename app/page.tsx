@@ -5,11 +5,12 @@ import {
   Filter,
   Headphones,
   Inbox,
-  Mail,
+  LogIn,
   ShieldCheck,
   Sparkle,
 } from "lucide-react";
 import { ProductPreview } from "@/components/ProductPreview";
+import { isAuth0Configured } from "@/lib/auth0-config";
 
 const FEATURES = [
   {
@@ -45,6 +46,9 @@ const FEATURES = [
 ];
 
 export default function LandingPage() {
+  const authReady = isAuth0Configured();
+  const primaryHref = authReady ? "/api/auth/login?returnTo=/dashboard" : "/dashboard";
+  const primaryLabel = authReady ? "Sign in" : "Open app";
   return (
     <main className="min-h-screen bg-zinc-50">
       <nav className="border-b border-zinc-200/70 bg-white/80 backdrop-blur">
@@ -75,18 +79,10 @@ export default function LandingPage() {
             <Link href="/dashboard" className="btn-ghost hidden sm:inline-flex">
               View demo
             </Link>
-            <Link href="/api/auth/google" className="btn-secondary">
-              Connect Gmail
-            </Link>
-            <Link
-              href="/api/auth/microsoft"
-              className="hidden sm:inline-flex btn-secondary"
-            >
-              Connect Outlook
-            </Link>
-            <Link href="/dashboard" className="btn-primary">
-              Open app
-            </Link>
+            <a href={primaryHref} className="btn-primary">
+              <LogIn className="h-4 w-4" />
+              {primaryLabel}
+            </a>
           </div>
         </div>
       </nav>
@@ -108,19 +104,23 @@ export default function LandingPage() {
               reports you can listen to.
             </p>
             <div className="mt-7 flex flex-wrap items-center gap-2">
-              <Link href="/api/auth/google" className="btn-primary">
-                <Mail className="h-4 w-4" />
-                Connect Gmail
-              </Link>
-              <Link href="/api/auth/microsoft" className="btn-secondary">
-                <Mail className="h-4 w-4" />
-                Connect Outlook
-              </Link>
+              <a href={primaryHref} className="btn-primary">
+                <LogIn className="h-4 w-4" />
+                {primaryLabel}
+              </a>
               <Link href="/dashboard" className="btn-ghost">
                 View demo
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
+            {!authReady && (
+              <p className="mt-3 text-xs text-zinc-500">
+                Auth0 isn&apos;t configured yet — the &ldquo;Open app&rdquo;
+                button takes you straight into the demo. Add your Auth0 keys
+                to <span className="font-mono">.env.local</span> to require
+                sign-in.
+              </p>
+            )}
             <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-zinc-500">
               <span className="inline-flex items-center gap-1.5">
                 <span className="dot bg-zinc-400" />

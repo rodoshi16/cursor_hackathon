@@ -2,7 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Headphones, LayoutDashboard, ScrollText } from "lucide-react";
+import { useUser } from "@auth0/nextjs-auth0/client";
+import {
+  Headphones,
+  LayoutDashboard,
+  LogIn,
+  LogOut,
+  ScrollText,
+} from "lucide-react";
 
 const TABS = [
   { href: "/dashboard", label: "Dashboard", Icon: LayoutDashboard },
@@ -10,13 +17,68 @@ const TABS = [
   { href: "/agent", label: "Voice Agent", Icon: Headphones },
 ] as const;
 
+function UserMenu() {
+  const { user, isLoading } = useUser();
+
+  if (isLoading) {
+    return (
+      <span className="h-7 w-7 animate-pulse rounded-full bg-zinc-100" />
+    );
+  }
+
+  if (user) {
+    const initials = (user.name || user.email || "U")
+      .split(" ")
+      .map((s) => s[0])
+      .slice(0, 2)
+      .join("")
+      .toUpperCase();
+    return (
+      <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 rounded-md border border-zinc-200 bg-white px-2 py-1">
+          {user.picture ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={user.picture}
+              alt={user.name || ""}
+              className="h-5 w-5 rounded-full"
+            />
+          ) : (
+            <span className="grid h-5 w-5 place-items-center rounded-full bg-zinc-900 text-[10px] font-semibold text-white">
+              {initials}
+            </span>
+          )}
+          <span className="hidden max-w-[120px] truncate text-xs text-zinc-700 md:inline">
+            {user.name || user.email}
+          </span>
+        </div>
+        <a
+          href="/api/auth/logout"
+          className="grid h-8 w-8 place-items-center rounded-md text-zinc-500 hover:bg-zinc-100"
+          title="Sign out"
+          aria-label="Sign out"
+        >
+          <LogOut className="h-4 w-4" />
+        </a>
+      </div>
+    );
+  }
+
+  return (
+    <a href="/api/auth/login" className="btn-secondary !py-1.5 text-xs">
+      <LogIn className="h-3.5 w-3.5" />
+      Sign in
+    </a>
+  );
+}
+
 export function AppNav() {
   const pathname = usePathname() || "";
   const demoMode = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 
   return (
     <nav className="sticky top-0 z-20 border-b border-zinc-200/70 bg-white/85 backdrop-blur">
-      <div className="container-page flex h-14 items-center justify-between">
+      <div className="container-page flex h-14 items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Link
             href="/"
@@ -72,29 +134,32 @@ export function AppNav() {
           })}
         </div>
 
-        <div className="flex items-center gap-1 sm:hidden">
-          {TABS.map(({ href, label, Icon }) => {
-            const active =
-              href === "/dashboard"
-                ? pathname === "/dashboard"
-                : href === "/agent"
-                ? pathname === "/agent"
-                : pathname.startsWith("/reports");
-            return (
-              <Link
-                key={href}
-                href={href}
-                aria-label={label}
-                className={`grid h-9 w-9 place-items-center rounded-md ${
-                  active
-                    ? "bg-zinc-900 text-white"
-                    : "text-zinc-700 hover:bg-zinc-100"
-                }`}
-              >
-                <Icon className="h-4 w-4" />
-              </Link>
-            );
-          })}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 sm:hidden">
+            {TABS.map(({ href, label, Icon }) => {
+              const active =
+                href === "/dashboard"
+                  ? pathname === "/dashboard"
+                  : href === "/agent"
+                  ? pathname === "/agent"
+                  : pathname.startsWith("/reports");
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  aria-label={label}
+                  className={`grid h-9 w-9 place-items-center rounded-md ${
+                    active
+                      ? "bg-zinc-900 text-white"
+                      : "text-zinc-700 hover:bg-zinc-100"
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
+                </Link>
+              );
+            })}
+          </div>
+          <UserMenu />
         </div>
       </div>
     </nav>

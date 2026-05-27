@@ -93,30 +93,98 @@ npm run dev
 Then open <http://localhost:3000>. Click **View Demo** to land on the
 dashboard.
 
-## Environment variables
+## Running it for real (with real keys)
 
-Create `.env.local` (or copy `.env.example`):
+InterviewRadar works out of the box in demo mode. To run it against your real
+inbox, calendar, voice agent, and a real login screen, fill in `.env.local`
+with the four sets of credentials below. **Any block you leave blank simply
+falls back to demo mode for that feature.**
+
+`cp .env.example .env.local` to get started.
+
+### 1) Auth0 (login)
+
+The `/dashboard`, `/reports`, and `/agent` routes are gated by Auth0 when it's
+configured. Without it, the app is fully open (demo).
+
+1. Create an Auth0 tenant at <https://manage.auth0.com>.
+2. **Applications → Create Application → Regular Web Applications**.
+3. In the application's **Settings**, set:
+   - **Allowed Callback URLs:** `http://localhost:3000/api/auth/callback`
+   - **Allowed Logout URLs:** `http://localhost:3000`
+   - **Allowed Web Origins:** `http://localhost:3000`
+4. Generate a secret: `openssl rand -hex 32`.
+5. Fill in `.env.local`:
+
+   ```bash
+   AUTH0_SECRET=<paste hex from step 4>
+   AUTH0_BASE_URL=http://localhost:3000
+   AUTH0_ISSUER_BASE_URL=https://YOUR-TENANT.us.auth0.com
+   AUTH0_CLIENT_ID=<from Auth0 Application Settings>
+   AUTH0_CLIENT_SECRET=<from Auth0 Application Settings>
+   ```
+
+6. Restart `npm run dev`. The landing page CTA flips from **Open app** to
+   **Sign in**; the dashboard / reports / agent routes now redirect to
+   `/api/auth/login` if you're not logged in.
+
+### 2) Google (Gmail + Google Calendar)
+
+1. Create a project at <https://console.cloud.google.com>.
+2. Enable the **Gmail API** and **Google Calendar API**.
+3. **APIs & Services → Credentials → Create credentials → OAuth client ID →
+   Web application**.
+4. **Authorized redirect URI:**
+   `http://localhost:3000/api/auth/google/callback`.
+5. Copy client ID + secret into `.env.local`:
+
+   ```bash
+   GOOGLE_CLIENT_ID=...
+   GOOGLE_CLIENT_SECRET=...
+   GOOGLE_REDIRECT_URI=http://localhost:3000/api/auth/google/callback
+   ```
+
+Scopes requested by the app: `gmail.readonly`, `calendar.events`,
+`openid email profile`.
+
+### 3) Microsoft (Outlook + Outlook Calendar)
+
+1. <https://portal.azure.com> → **App registrations → New registration**.
+2. **Redirect URI (Web):**
+   `http://localhost:3000/api/auth/microsoft/callback`.
+3. **API permissions → Add a permission → Microsoft Graph → Delegated**:
+   `User.Read`, `Mail.Read`, `Calendars.ReadWrite`, `offline_access`,
+   `openid`, `profile`, `email`.
+4. **Certificates & secrets → New client secret**.
+5. Copy into `.env.local`:
+
+   ```bash
+   MICROSOFT_CLIENT_ID=...
+   MICROSOFT_CLIENT_SECRET=...
+   MICROSOFT_TENANT_ID=common
+   MICROSOFT_REDIRECT_URI=http://localhost:3000/api/auth/microsoft/callback
+   ```
+
+### 4) ElevenLabs (voice + Conversational AI agent)
+
+See the detailed steps below. The `/agent` page also has an in-app **Configure**
+modal that copies the system prompt and tools JSON for you.
 
 ```bash
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
-GOOGLE_REDIRECT_URI=http://localhost:3000/api/auth/google/callback
-
-MICROSOFT_CLIENT_ID=
-MICROSOFT_CLIENT_SECRET=
-MICROSOFT_TENANT_ID=common
-MICROSOFT_REDIRECT_URI=http://localhost:3000/api/auth/microsoft/callback
-
-NEXT_PUBLIC_APP_URL=http://localhost:3000
-
-ELEVENLABS_API_KEY=
-ELEVENLABS_VOICE_ID=
-ELEVENLABS_AGENT_ID=
-
-NEXT_PUBLIC_DEMO_MODE=true
+ELEVENLABS_API_KEY=...
+ELEVENLABS_VOICE_ID=...        # optional, for read-aloud briefings
+ELEVENLABS_AGENT_ID=...        # for the live voice agent
 ```
 
-All credentials are optional — missing ones simply degrade gracefully.
+### 5) Toggle off demo mode (optional)
+
+```bash
+NEXT_PUBLIC_DEMO_MODE=false
+```
+
+Restart `npm run dev`, sign in via Auth0, then on the dashboard click
+**Connect Gmail** / **Connect Outlook** to authorize. The next scan will read
+your real inbox.
 
 ## Google setup
 
