@@ -9,7 +9,7 @@ export async function GET(req: Request) {
 
   if (!code) {
     return NextResponse.redirect(
-      new URL("/dashboard?auth_error=missing_code", appUrl)
+      new URL("/connect?auth_error=missing_code", appUrl)
     );
   }
 
@@ -17,14 +17,14 @@ export async function GET(req: Request) {
     const account = await microsoftProvider.exchangeCodeForTokens(code);
     saveConnectedAccount(account);
     return NextResponse.redirect(
-      new URL("/dashboard?connected=microsoft", appUrl)
+      new URL("/connect?connected=microsoft", appUrl)
     );
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Microsoft OAuth callback failed.";
     return NextResponse.redirect(
       new URL(
-        `/dashboard?auth_error=${encodeURIComponent(message)}`,
+        `/connect?auth_error=${encodeURIComponent(message)}`,
         appUrl
       )
     );

@@ -47,8 +47,10 @@ const FEATURES = [
 
 export default function LandingPage() {
   const authReady = isAuth0Configured();
-  const primaryHref = authReady ? "/api/auth/login?returnTo=/dashboard" : "/dashboard";
-  const primaryLabel = authReady ? "Sign in" : "Open app";
+  const primaryHref = authReady
+    ? "/api/auth/login?returnTo=/connect"
+    : "/connect";
+  const primaryLabel = authReady ? "Sign in" : "Get started";
   return (
     <main className="min-h-screen bg-zinc-50">
       <nav className="border-b border-zinc-200/70 bg-white/80 backdrop-blur">

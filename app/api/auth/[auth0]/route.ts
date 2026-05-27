@@ -22,7 +22,7 @@ async function buildHandler() {
     await import("@auth0/nextjs-auth0");
   return handleAuth({
     login: handleLogin({
-      returnTo: "/dashboard",
+      returnTo: "/connect",
     }),
     logout: handleLogout({
       returnTo: "/",

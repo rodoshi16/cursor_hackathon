@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const PROTECTED_PREFIXES = ["/dashboard", "/reports", "/agent"];
+const PROTECTED_PREFIXES = ["/dashboard", "/reports", "/agent", "/connect"];
 
 function auth0Configured(): boolean {
   return Boolean(
@@ -32,5 +32,10 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/reports/:path*", "/agent/:path*"],
+  matcher: [
+    "/dashboard/:path*",
+    "/reports/:path*",
+    "/agent/:path*",
+    "/connect/:path*",
+  ],
 };
